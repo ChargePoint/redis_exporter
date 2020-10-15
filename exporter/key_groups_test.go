@@ -35,12 +35,16 @@ func getDBCount(c redis.Conn) (dbCount int, err error) {
 }
 
 type keyGroupData struct {
-	name                   string
-	checkKeyGroups         string
-	maxDistinctKeyGroups   int64
-	wantedCount            map[string]int
-	wantedMemory           map[string]bool
-	wantedDistintKeyGroups int
+	name                                 string
+	checkKeyGroups                       string
+	maxDistinctKeyGroups                 int64
+	checkKeyGroupsAsync                  bool
+	checkKeyGroupsAsyncMinInterval       time.Duration
+	checkKeyGroupsAsyncMaxInterval       time.Duration
+	checkKeyGroupsAsyncTargetUtilization float64
+	wantedCount                          map[string]int
+	wantedMemory                         map[string]bool
+	wantedDistintKeyGroups               int
 }
 
 func TestKeyGroupMetrics(t *testing.T) {
@@ -83,9 +87,56 @@ func TestKeyGroupMetrics(t *testing.T) {
 			wantedDistintKeyGroups: 4,
 		},
 		{
+			name:                                 "asynchronous with unclassified keys",
+			checkKeyGroups:                       "^(key_ringo)_[0-9]+$,^(key_paul)_[0-9]+$,^(key_exp)_.+$",
+			maxDistinctKeyGroups:                 100,
+			checkKeyGroupsAsync:                  true,
+			checkKeyGroupsAsyncTargetUtilization: 0.001,
+			checkKeyGroupsAsyncMinInterval:       1 * time.Minute,
+			checkKeyGroupsAsyncMaxInterval:       5 * time.Minute,
+			// The actual counts are a function of keys (all types) being set up in the init() function
+			// and the CheckKeyGroups regexes for initializing the Redis exporter above. The count below
+			// will need to be updated if either of the aforementioned things have changed.
+			wantedCount: map[string]int{
+				"key_ringo":    1,
+				"key_paul":     1,
+				"unclassified": 5,
+				"key_exp":      5,
+			},
+			wantedMemory: map[string]bool{
+				"key_ringo":    true,
+				"key_paul":     true,
+				"unclassified": true,
+				"key_exp":      true,
+			},
+			wantedDistintKeyGroups: 4,
+		},
+		{
 			name:                 "synchronous with overflow keys",
 			checkKeyGroups:       "^(.*)$", // Each key is a distinct key group
 			maxDistinctKeyGroups: 1,
+			// The actual counts depend on the largest key being set up in the init()
+			// function (test-stream at the time this code was written) and the total
+			// of keys (all types). This will need to be updated to match future
+			// updates of the init() function
+			wantedCount: map[string]int{
+				"test-stream": 1,
+				"overflow":    11,
+			},
+			wantedMemory: map[string]bool{
+				"test-stream": true,
+				"overflow":    true,
+			},
+			wantedDistintKeyGroups: 12,
+		},
+		{
+			name:                                 "asynchronous with overflow keys",
+			checkKeyGroups:                       "^(.*)$", // Each key is a distinct key group
+			maxDistinctKeyGroups:                 1,
+			checkKeyGroupsAsync:                  true,
+			checkKeyGroupsAsyncTargetUtilization: 10,
+			checkKeyGroupsAsyncMinInterval:       10 * time.Minute,
+			checkKeyGroupsAsyncMaxInterval:       60 * time.Minute,
 			// The actual counts depend on the largest key being set up in the init()
 			// function (test-stream at the time this code was written) and the total
 			// of keys (all types). This will need to be updated to match future
@@ -107,10 +158,14 @@ func TestKeyGroupMetrics(t *testing.T) {
 			e, _ := NewRedisExporter(
 				addr,
 				Options{
-					Namespace:               "test",
-					CheckKeyGroups:          tst.checkKeyGroups,
-					CheckKeyGroupsBatchSize: 1000,
-					MaxDistinctKeyGroups:    tst.maxDistinctKeyGroups,
+					Namespace:                            "test",
+					CheckKeyGroups:                       tst.checkKeyGroups,
+					CheckKeyGroupsBatchSize:              1000,
+					CheckKeyGroupsAsync:                  tst.checkKeyGroupsAsync,
+					CheckKeyGroupsAsyncMinInterval:       tst.checkKeyGroupsAsyncMinInterval,
+					CheckKeyGroupsAsyncMaxInterval:       tst.checkKeyGroupsAsyncMaxInterval,
+					CheckKeyGroupsAsyncTargetUtilization: tst.checkKeyGroupsAsyncTargetUtilization,
+					MaxDistinctKeyGroups:                 tst.maxDistinctKeyGroups,
 				},
 			)
 			for {

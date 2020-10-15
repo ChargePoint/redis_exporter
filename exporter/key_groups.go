@@ -31,7 +31,41 @@ type keyGroupsScrapeResult struct {
 }
 
 func (e *Exporter) extractKeyGroupMetrics(ch chan<- prometheus.Metric, c redis.Conn, dbCount int) {
-	allDbKeyGroupMetrics := e.gatherKeyGroupsMetricsForAllDatabases(c, dbCount)
+
+	var allDbKeyGroupMetrics *keyGroupsScrapeResult
+	if e.options.CheckKeyGroupsAsync {
+		if !e.asyncCheckKeyGroupsStarted {
+			e.asyncCheckKeyGroupsStarted = true
+			go func() {
+				for {
+					asyncC, err := e.connectToRedis()
+					if err != nil {
+						log.Error(err)
+						time.Sleep(5 * time.Second)
+						continue
+					}
+					metrics := e.gatherKeyGroupsMetricsForAllDatabases(asyncC, dbCount)
+					e.latestAsyncCheckKeyGroupsMetrics.Store(metrics)
+					asyncC.Close()
+					targetSleepDuration := time.Millisecond *
+						time.Duration(int64(float64(metrics.duration.Milliseconds())*
+							(100.0-e.options.CheckKeyGroupsAsyncTargetUtilization)/e.options.CheckKeyGroupsAsyncTargetUtilization))
+					if targetSleepDuration < e.options.CheckKeyGroupsAsyncMinInterval {
+						targetSleepDuration = e.options.CheckKeyGroupsAsyncMinInterval
+					} else if targetSleepDuration > e.options.CheckKeyGroupsAsyncMaxInterval {
+						targetSleepDuration = e.options.CheckKeyGroupsAsyncMaxInterval
+					}
+					time.Sleep(targetSleepDuration)
+				}
+			}()
+		}
+		latest := e.latestAsyncCheckKeyGroupsMetrics.Load()
+		if latest != nil {
+			allDbKeyGroupMetrics = latest.(*keyGroupsScrapeResult)
+		}
+	} else {
+		allDbKeyGroupMetrics = e.gatherKeyGroupsMetricsForAllDatabases(c, dbCount)
+	}
 	if allDbKeyGroupMetrics == nil {
 		return
 	}

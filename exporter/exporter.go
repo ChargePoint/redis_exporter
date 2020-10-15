@@ -12,6 +12,7 @@ import (
 	"strconv"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/gomodule/redigo/redis"
@@ -79,36 +80,43 @@ type Exporter struct {
 	mux *http.ServeMux
 
 	buildInfo BuildInfo
+
+	asyncCheckKeyGroupsStarted       bool
+	latestAsyncCheckKeyGroupsMetrics atomic.Value
 }
 
 type Options struct {
-	User                    string
-	Password                string
-	Namespace               string
-	ConfigCommandName       string
-	CheckSingleKeys         string
-	CheckStreams            string
-	CheckSingleStreams      string
-	CheckKeys               string
-	CheckKeyGroups          string
-	CheckKeyGroupsBatchSize int64
-	MaxDistinctKeyGroups    int64
-	CountKeys               string
-	LuaScript               []byte
-	ClientCertificates      []tls.Certificate
-	CaCertificates          *x509.CertPool
-	InclSystemMetrics       bool
-	SkipTLSVerification     bool
-	SetClientName           bool
-	IsTile38                bool
-	ExportClientList        bool
-	ExportClientsInclPort   bool
-	ConnectionTimeouts      time.Duration
-	MetricsPath             string
-	RedisMetricsOnly        bool
-	PingOnConnect           bool
-	Registry                *prometheus.Registry
-	BuildInfo               BuildInfo
+	User                                 string
+	Password                             string
+	Namespace                            string
+	ConfigCommandName                    string
+	CheckSingleKeys                      string
+	CheckStreams                         string
+	CheckSingleStreams                   string
+	CheckKeys                            string
+	CheckKeyGroups                       string
+	CheckKeyGroupsBatchSize              int64
+	CheckKeyGroupsAsync                  bool
+	CheckKeyGroupsAsyncMinInterval       time.Duration
+	CheckKeyGroupsAsyncMaxInterval       time.Duration
+	CheckKeyGroupsAsyncTargetUtilization float64
+	MaxDistinctKeyGroups                 int64
+	CountKeys                            string
+	LuaScript                            []byte
+	ClientCertificates                   []tls.Certificate
+	CaCertificates                       *x509.CertPool
+	InclSystemMetrics                    bool
+	SkipTLSVerification                  bool
+	SetClientName                        bool
+	IsTile38                             bool
+	ExportClientList                     bool
+	ExportClientsInclPort                bool
+	ConnectionTimeouts                   time.Duration
+	MetricsPath                          string
+	RedisMetricsOnly                     bool
+	PingOnConnect                        bool
+	Registry                             *prometheus.Registry
+	BuildInfo                            BuildInfo
 }
 
 func (e *Exporter) scrapeHandler(w http.ResponseWriter, r *http.Request) {
